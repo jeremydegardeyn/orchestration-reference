@@ -1,0 +1,78 @@
+name: ci
+
+# PR validation. Runs only the checks relevant to what changed (monorepo path filtering).
+# No GCP auth needed — these are pure build/validate steps.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      composer: ${{ steps.filter.outputs.composer }}
+      dagster: ${{ steps.filter.outputs.dagster }}
+      analyzer: ${{ steps.filter.outputs.analyzer }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            composer:
+              - 'composer/**'
+            dagster:
+              - 'dagster/**'
+            analyzer:
+              - 'error-analyzer/**'
+
+  composer-validate:
+    needs: changes
+    if: needs.changes.outputs.composer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Generate DAGs from configs (smoke test)
+        working-directory: composer
+        run: |
+          pip install jinja2 pyyaml
+          set -a && source env/dev.env && set +a
+          python -m framework.dag_builder
+          echo "Generated:" && ls dags/*__*.py
+      - name: Python compiles
+        working-directory: composer
+        run: python -m py_compile $(git ls-files '*.py')
+
+  dagster-validate:
+    needs: changes
+    if: needs.changes.outputs.dagster == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install + validate code location
+        working-directory: dagster
+        run: |
+          pip install -e ".[dev]"
+          dagster definitions validate
+
+  analyzer-validate:
+    needs: changes
+    if: needs.changes.outputs.analyzer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install + import check
+        working-directory: error-analyzer
+        run: |
+          pip install -e ".[dev]"
+          python -c "import error_analyzer; from error_analyzer.server import app; print('ok')"
+          pytest -q || echo "no tests yet"

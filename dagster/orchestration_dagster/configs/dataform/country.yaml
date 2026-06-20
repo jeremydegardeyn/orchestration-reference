@@ -1,0 +1,16 @@
+---
+dag_attr:
+  tags:
+    - name: "country"
+  alert_after_run_minutes: 5
+
+schedules:
+  - interval: "0 3 * * MON"
+    timezone: "America/New_York"
+    executions:
+      tag:
+        include_dependencies: true
+        include_dependents: false
+        do_full_refresh: false
+        names:
+          - name: "country"

@@ -1,0 +1,67 @@
+name: composer-deploy
+
+# Build env-specific DAGs from configs and rsync them to the Composer bucket.
+# push to main (composer/** changed) → deploy dev automatically.
+# manual run → pick the environment (qa/prod gated by GitHub Environment protection rules).
+on:
+  push:
+    branches: [main]
+    paths: ['composer/**', '.github/workflows/composer-deploy.yml']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, qa, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write   # required for Workload Identity Federation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # On push default to dev; on manual run use the chosen environment. GitHub Environment
+    # protection (required reviewers) gates prod.
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Generate DAGs (env values baked in at build time)
+        working-directory: composer
+        run: |
+          pip install jinja2 pyyaml
+          ENV_NAME="${{ github.event.inputs.environment || 'dev' }}"
+          set -a && source "env/${ENV_NAME}.env" && set +a
+          python -m framework.dag_builder
+          ls dags/*__*.py
+
+      - name: Authenticate to GCP (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve Composer DAG bucket
+        id: bucket
+        run: |
+          PREFIX=$(gcloud composer environments describe ${{ vars.COMPOSER_ENV }} \
+            --location ${{ vars.GCP_REGION }} --project ${{ vars.GCP_PROJECT }} \
+            --format='value(config.dagGcsPrefix)')
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "Resolved DAG prefix: $PREFIX"
+
+      - name: Sync DAGs + configs + utils to Composer
+        working-directory: composer
+        run: |
+          # rsync the runtime tree (generated DAGs + configs + utils). --delete keeps the bucket
+          # in sync with the repo so removed pipelines disappear.
+          gcloud storage rsync --recursive --delete-unmatched-destination-objects \
+            dags ${{ steps.bucket.outputs.prefix }}
+          echo "Deployed to ${{ steps.bucket.outputs.prefix }}"

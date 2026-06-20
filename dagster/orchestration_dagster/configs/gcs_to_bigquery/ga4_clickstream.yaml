@@ -1,0 +1,31 @@
+---
+# Identical schema to the Composer repo's config — that's the point: configs are portable across platforms.
+dag_attr:
+  tags:
+    - name: "ga4"
+    - name: "clickstream"
+  alert_after_run_minutes: 75
+
+workflow_type: "dataflow"
+
+schedules:
+  - interval: "0 6 * * *"
+    timezone: "America/New_York"
+    executions:
+      gcs_to_bigquery:
+        source:
+          landing_bucket: "llb-edp-ga-clickstream-dev"
+          file_pattern: "ga4_events_*.avro"
+          field_delimiter: "|"
+          skip_leading_rows: 0
+          quote_char: "\""
+          max_bad_records: 0
+          is_truncate: false
+        dataflow:
+          max_workers: 4
+          disk_size_gb: 25
+          machine_type: "n1-standard-4"
+        sink:
+          raw_dataset: "staging"
+          raw_table: "ga4_events_raw"
+          error_bucket: "gs://llb-edp-gcs-to-bq-error-dev/clickstream"

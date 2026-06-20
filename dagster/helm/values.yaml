@@ -1,0 +1,65 @@
+# Values for the official Dagster Helm chart (dagster/dagster).
+# Wires: our user-code image, Cloud SQL run storage, Workload Identity, and the alert env.
+# See RUNBOOK.md for the install commands.
+
+serviceAccount:
+  # Bind to the GSA via Workload Identity (Terraform created the GSA + WI binding).
+  create: true
+  name: dagster
+  annotations:
+    iam.gke.io/gcp-service-account: "sa-dagster-dev@your-gcp-project-id.iam.gserviceaccount.com"
+
+# Run/event/schedule storage in Cloud SQL Postgres (NOT the bundled chart Postgres).
+postgresql:
+  enabled: false
+generatePostgresqlPasswordSecret: false
+global:
+  postgresqlSecretName: dagster-postgresql-secret   # create manually: keys postgresql-password
+runStorage: &pg
+  config:
+    postgresStorageConfig:
+      postgresDB:
+        username: dagster
+        password:
+          env: DAGSTER_PG_PASSWORD
+        hostname: REPLACE_WITH_sql_host_or_proxy
+        db_name: dagster
+        port: 5432
+eventLogStorage: *pg
+scheduleStorage: *pg
+
+# The code location (our image). One deployment, loaded via gRPC.
+dagster-user-deployments:
+  enabled: true
+  deployments:
+    - name: orchestration
+      image:
+        repository: us-central1-docker.pkg.dev/your-gcp-project-id/edp/dagster-orchestration
+        tag: latest
+        pullPolicy: IfNotPresent
+      dagsterApiGrpcArgs:
+        - "-m"
+        - "orchestration_dagster.definitions"
+      port: 4000
+      envConfigMaps:
+        - name: dagster-pipeline-env   # ENV, ERROR_ANALYZER_URL, DATAFLOW_*, DATAFORM_*, ALERT_TEAMS_CHANNEL
+      env:
+        DAGSTER_PG_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: dagster-postgresql-secret
+              key: postgresql-password
+
+# The long-running daemon (schedules, sensors, run queue) — must stay up.
+dagsterDaemon:
+  enabled: true
+  runCoordinator:
+    enabled: true
+    type: QueuedRunCoordinator
+    config:
+      queuedRunCoordinator:
+        maxConcurrentRuns: 5
+
+dagsterWebserver:
+  replicaCount: 1
+  # Expose internally; front with an IAP/ingress or port-forward (Dagster OSS has no auth).

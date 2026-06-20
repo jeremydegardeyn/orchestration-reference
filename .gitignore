@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets / local config
+.env
+# error-analyzer runtime env CAN hold the Teams webhook — never commit it (only the .example)
+error-analyzer/env/*.env
+!error-analyzer/env/*.env.example
+# NOTE: composer/env/*.env is intentionally committed — it holds only project ids + bucket names
+# (no secrets) and CI sources it to bake env values into generated DAGs.
+*.tfvars
+!**/env/dev.tfvars
+!**/env/prod.tfvars
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Dagster local
+tmp*/
+dagster_home/
+storage/
+history/
+logs/
+
+# Composer generated DAGs (built by CI from configs)
+composer/dags/*__*.py

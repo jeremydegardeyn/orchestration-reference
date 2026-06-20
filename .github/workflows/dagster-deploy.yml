@@ -1,0 +1,66 @@
+name: dagster-deploy
+
+# Build + push the user-code image, then roll it out to the Dagster Helm release on GKE.
+# push to main (dagster/** changed) → dev. Manual run → pick environment.
+on:
+  push:
+    branches: [main]
+    paths: ['dagster/**', '.github/workflows/dagster-deploy.yml']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, qa, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      IMAGE: ${{ vars.ARTIFACT_REGISTRY }}/dagster-orchestration
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build + push image
+        working-directory: dagster
+        run: |
+          TAG=${GITHUB_SHA::8}
+          docker build -t "$IMAGE:$TAG" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:latest"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_ZONE }}
+
+      - name: Helm rollout
+        working-directory: dagster
+        run: |
+          helm repo add dagster https://dagster-io.github.io/helm
+          helm repo update
+          # Roll the user-code deployment to the new image tag; values.yaml holds the rest.
+          helm upgrade --install dagster dagster/dagster \
+            -n ${{ vars.GKE_NAMESPACE }} -f helm/values.yaml \
+            --set "dagster-user-deployments.deployments[0].image.repository=$IMAGE" \
+            --set "dagster-user-deployments.deployments[0].image.tag=$TAG" \
+            --wait --timeout 5m

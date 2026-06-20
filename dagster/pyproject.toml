@@ -1,0 +1,31 @@
+[project]
+name = "orchestration_dagster"
+version = "0.1.0"
+description = "Config-driven data-pipeline orchestration on Dagster. Same patterns as the Composer repo (gcs_to_bigquery, dataform), built from YAML at load time."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "dagster>=1.7",
+    "dagster-webserver>=1.7",
+    "dagster-postgres",
+    "dagster-gcp",
+    "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "google-cloud-dataform>=0.6.2",
+    "google-api-python-client>=2.0",
+    "google-auth>=2.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.dagster]
+module_name = "orchestration_dagster.definitions"
+code_location_name = "orchestration_dagster"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["orchestration_dagster*"]

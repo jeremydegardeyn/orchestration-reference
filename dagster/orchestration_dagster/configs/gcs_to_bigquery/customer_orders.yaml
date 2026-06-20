@@ -1,0 +1,29 @@
+---
+dag_attr:
+  tags:
+    - name: "orders"
+  alert_after_run_minutes: 30
+
+workflow_type: "dataflow"
+
+schedules:
+  - interval: "30 4 * * *"
+    timezone: "America/New_York"
+    executions:
+      gcs_to_bigquery:
+        source:
+          landing_bucket: "llb-edp-orders-dev"
+          file_pattern: "orders_*.csv"
+          field_delimiter: ","
+          skip_leading_rows: 1
+          quote_char: "\""
+          max_bad_records: 5
+          is_truncate: true
+        dataflow:
+          max_workers: 2
+          disk_size_gb: 25
+          machine_type: "n1-standard-2"
+        sink:
+          raw_dataset: "staging"
+          raw_table: "orders_raw"
+          error_bucket: "gs://llb-edp-gcs-to-bq-error-dev/orders"

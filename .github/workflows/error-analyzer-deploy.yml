@@ -1,0 +1,55 @@
+name: error-analyzer-deploy
+
+# Build + push the analyzer image and roll it out to Cloud Run.
+# push to main (error-analyzer/** changed) → dev. Manual run → pick environment.
+on:
+  push:
+    branches: [main]
+    paths: ['error-analyzer/**', '.github/workflows/error-analyzer-deploy.yml']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, qa, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      IMAGE: ${{ vars.ARTIFACT_REGISTRY }}/error-analyzer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build + push image
+        working-directory: error-analyzer
+        run: |
+          TAG=${GITHUB_SHA::8}
+          docker build -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment || 'dev' }}"
+          # Image-only update; env/secrets are managed by the analyzer's Terraform.
+          gcloud run services update "error-analyzer-${ENV_NAME}" \
+            --region ${{ vars.GCP_REGION }} --project ${{ vars.GCP_PROJECT }} \
+            --image "$IMAGE:$TAG"

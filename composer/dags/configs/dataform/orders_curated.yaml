@@ -1,0 +1,20 @@
+---
+# Runs a specific Dataform action/target instead of a tag (execution type "object").
+dag_attr:
+  tags:
+    - name: "orders"
+    - name: "curated"
+  alert_after_run_minutes: 20
+
+schedules:
+  - interval: "0 5 * * *"
+    timezone: "America/New_York"
+    executions:
+      object:
+        include_dependencies: true
+        include_dependents: false
+        do_full_refresh: false
+        names:
+          - database: "{{ curated }}"
+            schema: "curated"
+            name: "orders_fact"

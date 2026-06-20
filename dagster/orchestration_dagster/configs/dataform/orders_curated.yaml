@@ -1,0 +1,19 @@
+---
+dag_attr:
+  tags:
+    - name: "orders"
+    - name: "curated"
+  alert_after_run_minutes: 20
+
+schedules:
+  - interval: "0 5 * * *"
+    timezone: "America/New_York"
+    executions:
+      object:
+        include_dependencies: true
+        include_dependents: false
+        do_full_refresh: false
+        names:
+          - database: "your-gcp-project-id"
+            schema: "curated"
+            name: "orders_fact"
