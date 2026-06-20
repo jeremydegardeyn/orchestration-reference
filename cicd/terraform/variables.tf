@@ -10,5 +10,6 @@ variable "region" {
 
 variable "github_repo" {
   type        = string
-  description = "owner/repo that is allowed to deploy, e.g. jeremydegardeyn/orchestration"
+  description = "owner/repo allowed to deploy via Workload Identity Federation"
+  default     = "jeremydegardeyn/orchestration-reference"
 }
