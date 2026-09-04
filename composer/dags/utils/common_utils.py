@@ -143,12 +143,40 @@ def final_status(**kwargs):
 
 
 def failure_notification(context):
-    """on_failure_callback: delegate to the shared error-analyzer (with a safe local fallback)."""
+    """on_failure_callback: emit the control event, then the human-facing Teams ping.
+
+    Two outputs, deliberately ordered and deliberately different in kind:
+
+    1. The **control event** (FinChat ADR-0026) is the record. It carries no exception
+       text, correlates on dag_id+run_id so retries collapse, and reaches ServiceNow as
+       an em_event through the shared dispatch pipeline.
+    2. The **Teams ping** is break-glass notification, not a record. It exists so a human
+       still hears about a failure when the downstream path is broken — which is exactly
+       the case the record cannot cover, because a broken path cannot report itself.
+
+    The control event goes first: if anything below it throws, the auditable record has
+    already been written.
+    """
     if env_override("ON", "ALERTS_ON_OFF") != "ON":
         return
-    from dags.utils import alerting
+    from dags.utils import alerting, control_events
 
     ti = context["ti"]
+
+    try:
+        control_events.emit_dag_failure(
+            dag_id=ti.dag_id,
+            task_id=ti.task_id,
+            run_id=ti.run_id,
+            # Emitter-set and therefore advisory. Composer has no Cloud Run service name
+            # to derive a trustworthy environment from, so the dispatch workflow falls
+            # back to this value for orchestration events (see docs/26 F18).
+            environment=env_override("dev", "ENV"),
+            owner=(ti.task.owner if getattr(ti, "task", None) else None),
+        )
+    except Exception:  # never let evidence break the task it is describing
+        pass
+
     alerting.notify_failure_lightweight(
         dag_id=ti.dag_id,
         task_id=ti.task_id,

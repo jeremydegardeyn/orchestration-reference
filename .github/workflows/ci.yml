@@ -47,6 +47,9 @@ jobs:
       - name: Python compiles
         working-directory: composer
         run: python -m py_compile $(git ls-files '*.py')
+      - name: Control-event envelope + correlation guard (FinChat ADR-0026)
+        working-directory: composer
+        run: pip install pytest && pytest tests/test_control_events.py -q
 
   dagster-validate:
     needs: changes
